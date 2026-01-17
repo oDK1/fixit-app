@@ -4,16 +4,18 @@ import { motion } from 'framer-motion';
 
 interface MenuModalProps {
   onClose: () => void;
-  onViewCharacterSheet: () => void;
+  onAdvancedReflection: () => void;
   onWeeklyReflection: () => void;
   onMonthlyBossFight: () => void;
+  onReset: () => void;
 }
 
 export default function MenuModal({
   onClose,
-  onViewCharacterSheet,
+  onAdvancedReflection,
   onWeeklyReflection,
   onMonthlyBossFight,
+  onReset,
 }: MenuModalProps) {
   return (
     <motion.div
@@ -34,16 +36,16 @@ export default function MenuModal({
         <div className="space-y-3">
           <button
             onClick={() => {
-              onViewCharacterSheet();
+              onAdvancedReflection();
               onClose();
             }}
             className="w-full text-left p-4 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 hover:border-purple-600 transition"
           >
             <div className="flex items-center gap-3">
-              <span className="text-2xl">📋</span>
+              <span className="text-2xl">🧠</span>
               <div>
-                <div className="font-semibold text-white">Character Sheet</div>
-                <div className="text-sm text-gray-400">View your 6 components</div>
+                <div className="font-semibold text-white">Advanced Reflection</div>
+                <div className="text-sm text-gray-400">16-question deep dive</div>
               </div>
             </div>
           </button>
@@ -76,6 +78,23 @@ export default function MenuModal({
               <div>
                 <div className="font-semibold text-white">Monthly Boss Fight</div>
                 <div className="text-sm text-gray-400">10-minute completion (test it now)</div>
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => {
+              if (confirm('Are you sure you want to reset? This will delete all your progress and start fresh.')) {
+                onReset();
+              }
+            }}
+            className="w-full text-left p-4 bg-gray-800 hover:bg-gray-700 rounded-lg border border-red-900 hover:border-red-600 transition"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🔄</span>
+              <div>
+                <div className="font-semibold text-red-400">Reset & Start Over</div>
+                <div className="text-sm text-gray-400">Clear all data and restart onboarding</div>
               </div>
             </div>
           </button>

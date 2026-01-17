@@ -59,6 +59,7 @@ export interface WeeklyReflection {
   anti_vision_check: boolean;
   levers_adjusted: boolean;
   project_progress: number;
+  blocking_progress?: string;
   created_at: string;
 }
 

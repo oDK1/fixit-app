@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { calculateLevel } from '@/lib/xp';
-import { DailyLog, DailyLever, CharacterSheet } from '@/types';
+import { DailyLog, CharacterSheet } from '@/types';
 
 interface WeeklyReflectionProps {
   userId: string;
@@ -17,17 +17,13 @@ export default function WeeklyReflection({
 }: WeeklyReflectionProps) {
   const [step, setStep] = useState(1);
   const [weekLogs, setWeekLogs] = useState<DailyLog[]>([]);
-  const [levers, setLevers] = useState<DailyLever[]>([]);
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
-  const [timeLeft, setTimeLeft] = useState(480); // 8 minutes
+  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes (reduced from 8)
 
   // Form state
   const [mostAlive, setMostAlive] = useState('');
-  const [mostDead, setMostDead] = useState('');
-  const [pattern, setPattern] = useState('');
-  const [antiVisionCheck, setAntiVisionCheck] = useState(false);
-  const [leversToKeep, setLeversToKeep] = useState<string[]>([]);
   const [projectProgress, setProjectProgress] = useState(0);
+  const [blockingProgress, setBlockingProgress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -52,17 +48,6 @@ export default function WeeklyReflection({
 
     setWeekLogs(logsData || []);
 
-    // Get active levers
-    const { data: leversData } = await supabase
-      .from('daily_levers')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('active', true)
-      .order('order');
-
-    setLevers(leversData || []);
-    setLeversToKeep((leversData || []).map(l => l.id));
-
     // Get character sheet
     const { data: sheetData } = await supabase
       .from('character_sheet')
@@ -71,6 +56,20 @@ export default function WeeklyReflection({
       .single();
 
     setSheet(sheetData);
+
+    // Get active boss fight progress
+    const { data: bossData } = await supabase
+      .from('boss_fights')
+      .select('progress')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (bossData) {
+      setProjectProgress(bossData.progress || 0);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -92,24 +91,16 @@ export default function WeeklyReflection({
         user_id: userId,
         week_start: weekStart.toISOString().split('T')[0],
         most_alive: mostAlive,
-        most_dead: mostDead,
-        pattern_noticed: pattern,
-        anti_vision_check: antiVisionCheck,
-        levers_adjusted: leversToKeep.length !== levers.length,
         project_progress: projectProgress,
+        blocking_progress: blockingProgress,
       });
 
-      // Deactivate removed levers
-      const leversToRemove = levers
-        .filter(l => !leversToKeep.includes(l.id))
-        .map(l => l.id);
-
-      if (leversToRemove.length > 0) {
-        await supabase
-          .from('daily_levers')
-          .update({ active: false })
-          .in('id', leversToRemove);
-      }
+      // Update the active boss fight progress
+      await supabase
+        .from('boss_fights')
+        .update({ progress: projectProgress })
+        .eq('user_id', userId)
+        .eq('status', 'active');
 
       // Update user XP (+200 for weekly reflection)
       const { data: userData } = await supabase
@@ -153,42 +144,32 @@ export default function WeeklyReflection({
             {/* Show daily comments */}
             <div className="mb-6 p-4 bg-gray-900 rounded-lg max-h-40 overflow-y-auto">
               <h3 className="text-sm text-gray-400 mb-2">Your daily reflections:</h3>
-              {weekLogs.map((log) => (
-                <div key={log.id} className="mb-2 text-sm">
-                  <span className={log.direction === 'vision' ? 'text-green-500' : 'text-red-500'}>
-                    {log.direction === 'vision' ? '→' : '←'}
-                  </span>
-                  <span className="text-gray-400 ml-2">{log.date}:</span>
-                  <span className="text-white ml-2">{log.comment}</span>
-                </div>
-              ))}
+              {weekLogs.length > 0 ? (
+                weekLogs.map((log) => (
+                  <div key={log.id} className="mb-2 text-sm">
+                    <span className={log.direction === 'vision' ? 'text-green-500' : 'text-red-500'}>
+                      {log.direction === 'vision' ? '→' : '←'}
+                    </span>
+                    <span className="text-gray-400 ml-2">{log.date}:</span>
+                    <span className="text-white ml-2">{log.comment}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500 text-sm">No daily logs this week</p>
+              )}
             </div>
 
-            <div className="space-y-4 flex-1">
-              <div>
-                <label className="block text-lg mb-2">
-                  When did I feel most alive this week? When did I feel most dead?
-                </label>
-                <textarea
-                  value={mostAlive}
-                  onChange={(e) => setMostAlive(e.target.value)}
-                  placeholder="Most alive when... Most dead when..."
-                  className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2">
-                  What pattern do you notice in your answers?
-                </label>
-                <textarea
-                  value={pattern}
-                  onChange={(e) => setPattern(e.target.value)}
-                  placeholder="I notice that..."
-                  className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
-                />
-              </div>
+            <div className="flex-1">
+              <label className="block text-lg mb-2">
+                When did I feel most alive this week? When did I feel most dead?
+              </label>
+              <textarea
+                value={mostAlive}
+                onChange={(e) => setMostAlive(e.target.value)}
+                placeholder="Most alive when... Most dead when..."
+                className="w-full h-40 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
+                autoFocus
+              />
             </div>
           </motion.div>
         );
@@ -202,84 +183,6 @@ export default function WeeklyReflection({
             exit={{ opacity: 0, x: -20 }}
             className="flex flex-col flex-1"
           >
-            <h2 className="text-2xl font-bold mb-6">Anti-Vision Reminder</h2>
-
-            <div className="border-2 border-red-600 rounded-lg p-6 bg-red-900/10 mb-6">
-              <p className="text-xl text-white italic mb-4">
-                "{sheet?.anti_vision}"
-              </p>
-              <label className="flex items-center gap-3 text-lg">
-                <input
-                  type="checkbox"
-                  checked={antiVisionCheck}
-                  onChange={(e) => setAntiVisionCheck(e.target.checked)}
-                  className="w-6 h-6"
-                />
-                <span>Does this still make you feel something when you read it?</span>
-              </label>
-            </div>
-
-            <p className="text-gray-400">
-              This is what's at stake if you give up. Let it fuel your commitment.
-            </p>
-          </motion.div>
-        );
-
-      case 3:
-        return (
-          <motion.div
-            key="step3"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="flex flex-col flex-1"
-          >
-            <h2 className="text-2xl font-bold mb-6">Lever Adjustment</h2>
-
-            <p className="text-gray-400 mb-4">
-              Are your daily levers moving the needle on your monthly project?
-            </p>
-
-            <div className="space-y-3">
-              {levers.map((lever) => (
-                <label
-                  key={lever.id}
-                  className="flex items-center gap-3 p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-800"
-                >
-                  <input
-                    type="checkbox"
-                    checked={leversToKeep.includes(lever.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setLeversToKeep([...leversToKeep, lever.id]);
-                      } else {
-                        setLeversToKeep(leversToKeep.filter(id => id !== lever.id));
-                      }
-                    }}
-                    className="w-5 h-5"
-                  />
-                  <span className={leversToKeep.includes(lever.id) ? 'text-white' : 'text-gray-500 line-through'}>
-                    {lever.lever_text}
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            <p className="text-sm text-gray-500 mt-4">
-              Uncheck levers that aren't helping. You can add new ones later.
-            </p>
-          </motion.div>
-        );
-
-      case 4:
-        return (
-          <motion.div
-            key="step4"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="flex flex-col flex-1"
-          >
             <h2 className="text-2xl font-bold mb-6">Project Progress</h2>
 
             <p className="text-gray-400 mb-4">
@@ -288,7 +191,7 @@ export default function WeeklyReflection({
 
             <div className="mb-6">
               <label className="block text-lg mb-4">
-                What % complete? What's blocking progress?
+                What % complete?
               </label>
 
               <input
@@ -297,21 +200,33 @@ export default function WeeklyReflection({
                 max="100"
                 value={projectProgress}
                 onChange={(e) => setProjectProgress(Number(e.target.value))}
-                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-600"
               />
 
               <div className="flex justify-between mt-2">
                 <span className="text-gray-400">0%</span>
-                <span className="text-2xl font-bold text-purple-500">{projectProgress}%</span>
+                <span className="text-2xl font-bold text-orange-500">{projectProgress}%</span>
                 <span className="text-gray-400">100%</span>
               </div>
             </div>
 
-            <div className="w-full bg-gray-800 h-8 rounded-full overflow-hidden">
+            <div className="w-full bg-gray-800 h-6 rounded-full overflow-hidden mb-6">
               <motion.div
-                className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
+                className="h-full bg-gradient-to-r from-red-600 to-orange-600"
                 initial={{ width: 0 }}
                 animate={{ width: `${projectProgress}%` }}
+              />
+            </div>
+
+            <div className="flex-1">
+              <label className="block text-lg mb-2">
+                What's blocking your progress?
+              </label>
+              <textarea
+                value={blockingProgress}
+                onChange={(e) => setBlockingProgress(e.target.value)}
+                placeholder="The main thing holding me back is..."
+                className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-600 resize-none"
               />
             </div>
           </motion.div>
@@ -325,12 +240,8 @@ export default function WeeklyReflection({
   const canProceed = () => {
     switch (step) {
       case 1:
-        return mostAlive.trim() && pattern.trim();
+        return mostAlive.trim().length > 0;
       case 2:
-        return true;
-      case 3:
-        return leversToKeep.length > 0;
-      case 4:
         return true;
       default:
         return false;
@@ -348,7 +259,7 @@ export default function WeeklyReflection({
 
         {/* Progress */}
         <div className="flex gap-2">
-          {[1, 2, 3, 4].map((s) => (
+          {[1, 2].map((s) => (
             <div
               key={s}
               className={`flex-1 h-2 rounded-full ${
@@ -362,7 +273,7 @@ export default function WeeklyReflection({
           ))}
         </div>
         <div className="text-sm text-gray-400 mt-2">
-          Step {step} of 4
+          Step {step} of 2
         </div>
       </div>
 
@@ -383,7 +294,7 @@ export default function WeeklyReflection({
 
         <button
           onClick={() => {
-            if (step === 4) {
+            if (step === 2) {
               handleComplete();
             } else {
               setStep(step + 1);
@@ -392,7 +303,7 @@ export default function WeeklyReflection({
           disabled={!canProceed() || isSaving}
           className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 transition font-semibold"
         >
-          {isSaving ? 'Saving...' : step === 4 ? 'Complete (+200 XP)' : 'Next'}
+          {isSaving ? 'Saving...' : step === 2 ? 'Complete (+200 XP)' : 'Next'}
         </button>
       </div>
     </div>

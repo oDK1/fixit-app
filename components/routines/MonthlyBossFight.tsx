@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { calculateLevel } from '@/lib/xp';
-import { BossFight, CharacterSheet } from '@/types';
+import { BossFight, CharacterSheet, WeeklyReflection } from '@/types';
 
 interface MonthlyBossFightProps {
   userId: string;
@@ -15,20 +15,18 @@ export default function MonthlyBossFight({
   userId,
   onComplete,
 }: MonthlyBossFightProps) {
-  const [step, setStep] = useState<'review' | 'result' | 'new-project' | 'evolution'>('review');
+  const [step, setStep] = useState<'completion' | 'review' | 'new-project'>('completion');
   const [currentBoss, setCurrentBoss] = useState<BossFight | null>(null);
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
+  const [weeklyReflections, setWeeklyReflections] = useState<WeeklyReflection[]>([]);
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
 
   // Form state
-  const [wasCompleted, setWasCompleted] = useState(false);
-  const [learnings, setLearnings] = useState('');
-  const [loot, setLoot] = useState<string[]>(['', '', '']);
+  const [wasCompleted, setWasCompleted] = useState<boolean | null>(null);
+  const [reflection, setReflection] = useState('');
   const [newProject, setNewProject] = useState('');
   const [newVision, setNewVision] = useState('');
-  const [newYearGoal, setNewYearGoal] = useState('');
-  const [constraintsViolated, setConstraintsViolated] = useState(false);
-  const [constraintsValid, setConstraintsValid] = useState(true);
+  const [newAntiVision, setNewAntiVision] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -61,8 +59,29 @@ export default function MonthlyBossFight({
 
     setSheet(sheetData);
     setNewVision(sheetData?.vision || '');
-    setNewYearGoal(sheetData?.year_goal || '');
-    setNewProject(sheetData?.month_project || '');
+    setNewAntiVision(sheetData?.anti_vision || '');
+
+    // Get weekly reflections for the current boss fight period only
+    // Filter by BOTH week_start date AND created_at timestamp to ensure
+    // we only show reflections that were created during this boss fight period
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Use the boss fight's created_at as the lower bound for reflections
+    // This ensures we only show reflections made DURING this boss fight period
+    const bossCreatedAt = bossData?.created_at
+      ? new Date(bossData.created_at).toISOString()
+      : new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: reflectionsData } = await supabase
+      .from('weekly_reflections')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('created_at', bossCreatedAt)
+      .lte('week_start', todayStr)
+      .order('week_start', { ascending: true });
+
+    setWeeklyReflections(reflectionsData || []);
   };
 
   const formatTime = (seconds: number) => {
@@ -75,16 +94,17 @@ export default function MonthlyBossFight({
     setIsSaving(true);
 
     try {
+      const completed = wasCompleted === true;
+
       // Update current boss fight
       if (currentBoss) {
         await supabase
           .from('boss_fights')
           .update({
-            status: wasCompleted ? 'defeated' : 'failed',
-            progress: wasCompleted ? 100 : currentBoss.progress,
-            learnings,
-            loot_acquired: wasCompleted ? loot.filter(l => l.trim()) : [],
-            xp_gained: wasCompleted ? 1000 : 250,
+            status: completed ? 'defeated' : 'failed',
+            progress: completed ? 100 : currentBoss.progress,
+            learnings: reflection,
+            xp_gained: completed ? 1000 : 250,
             completed_at: new Date().toISOString(),
           })
           .eq('id', currentBoss.id);
@@ -99,12 +119,12 @@ export default function MonthlyBossFight({
         progress: 0,
       });
 
-      // Update character sheet
+      // Update character sheet with vision, anti-vision, and new project
       await supabase
         .from('character_sheet')
         .update({
           vision: newVision,
-          year_goal: newYearGoal,
+          anti_vision: newAntiVision,
           month_project: newProject,
         })
         .eq('user_id', userId);
@@ -116,7 +136,7 @@ export default function MonthlyBossFight({
         .eq('id', userId)
         .single();
 
-      const xpGain = wasCompleted ? 1000 : 250;
+      const xpGain = completed ? 1000 : 250;
       const newXp = (userData?.total_xp || 0) + xpGain;
       const newLevel = calculateLevel(newXp);
 
@@ -138,20 +158,20 @@ export default function MonthlyBossFight({
 
   const renderStep = () => {
     switch (step) {
-      case 'review':
+      case 'completion':
         return (
           <motion.div
-            key="review"
+            key="completion"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="flex flex-col flex-1"
           >
-            <h2 className="text-2xl font-bold mb-6">Project Completion Review</h2>
+            <h2 className="text-2xl font-bold mb-6">Project Completion</h2>
 
             <div className="border-2 border-orange-600 rounded-lg p-6 bg-orange-900/10 mb-6">
-              <h3 className="text-orange-500 font-bold mb-2">This Month's Project:</h3>
-              <p className="text-xl text-white">{currentBoss?.project_text}</p>
+              <h3 className="text-orange-500 font-bold mb-2">⚔️ This Month's Boss:</h3>
+              <p className="text-xl text-white">{currentBoss?.project_text || 'No active project'}</p>
             </div>
 
             <div className="space-y-6 flex-1">
@@ -163,7 +183,7 @@ export default function MonthlyBossFight({
                   <button
                     onClick={() => setWasCompleted(true)}
                     className={`flex-1 py-4 rounded-lg font-semibold transition ${
-                      wasCompleted
+                      wasCompleted === true
                         ? 'bg-green-600 border-2 border-green-400'
                         : 'bg-gray-800 border-2 border-gray-700 hover:border-green-600'
                     }`}
@@ -173,7 +193,7 @@ export default function MonthlyBossFight({
                   <button
                     onClick={() => setWasCompleted(false)}
                     className={`flex-1 py-4 rounded-lg font-semibold transition ${
-                      !wasCompleted && wasCompleted !== null
+                      wasCompleted === false
                         ? 'bg-red-600 border-2 border-red-400'
                         : 'bg-gray-800 border-2 border-gray-700 hover:border-red-600'
                     }`}
@@ -183,105 +203,112 @@ export default function MonthlyBossFight({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-lg mb-2">
-                  What did you learn that you couldn't have known before?
-                </label>
-                <textarea
-                  value={learnings}
-                  onChange={(e) => setLearnings(e.target.value)}
-                  placeholder="I learned that..."
-                  className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
-                />
-              </div>
+              {wasCompleted !== null && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-4"
+                >
+                  {/* Weekly Reflections Display */}
+                  <div className="border border-gray-700 rounded-lg p-4 bg-gray-900/50">
+                    <h3 className="text-sm font-semibold text-gray-400 mb-3 flex items-center gap-2">
+                      <span>📝</span>
+                      {wasCompleted
+                        ? 'When did you feel most alive/dead this month?'
+                        : 'What was blocking your progress this month?'}
+                    </h3>
+                    <div className="space-y-3 max-h-32 overflow-y-auto">
+                      {weeklyReflections.length === 0 ? (
+                        <p className="text-gray-500 text-sm italic">No weekly reflections this month</p>
+                      ) : (
+                        <>
+                          {weeklyReflections.map((reflection, index) => {
+                            const weekNum = index + 1;
+                            const content = wasCompleted
+                              ? reflection.most_alive
+                              : reflection.blocking_progress;
+                            return (
+                              <div key={reflection.id} className="text-sm">
+                                <span className="text-purple-400 font-medium">Week {weekNum}:</span>
+                                <span className="text-gray-300 ml-2">
+                                  {content || <span className="text-gray-500 italic">Not recorded</span>}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  </div>
 
-              {wasCompleted && (
-                <div>
-                  <label className="block text-lg mb-2">
-                    What surprised you about who you became this month?
-                  </label>
-                  <textarea
-                    value={loot[0]}
-                    onChange={(e) => setLoot([e.target.value, loot[1], loot[2]])}
-                    placeholder="I was surprised by..."
-                    className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-lg mb-2">
+                      {wasCompleted
+                        ? 'What did you learn?'
+                        : 'Why were you not able to complete?'}
+                    </label>
+                    <textarea
+                      value={reflection}
+                      onChange={(e) => setReflection(e.target.value)}
+                      placeholder={
+                        wasCompleted
+                          ? 'I learned that...'
+                          : 'I was not able to complete because...'
+                      }
+                      className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
+                      autoFocus
+                    />
+                  </div>
+                </motion.div>
               )}
             </div>
           </motion.div>
         );
 
-      case 'result':
+      case 'review':
         return (
           <motion.div
-            key="result"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="flex flex-col flex-1 items-center justify-center"
+            key="review"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="flex flex-col flex-1"
           >
-            {wasCompleted ? (
-              <>
-                <motion.div
-                  initial={{ y: -50 }}
-                  animate={{ y: 0 }}
-                  transition={{ type: 'spring', bounce: 0.5 }}
-                  className="text-8xl mb-8"
-                >
-                  ⚔️
-                </motion.div>
-                <h2 className="text-4xl font-bold text-green-500 mb-4">
-                  BOSS DEFEATED!
-                </h2>
-                <p className="text-2xl text-gray-400 mb-8">
-                  "{currentBoss?.project_text}"
+            <h2 className="text-2xl font-bold mb-6">Review Your Direction</h2>
+
+            <div className="space-y-6 flex-1">
+              {/* Anti-Vision */}
+              <div className="border-2 border-red-600 rounded-lg p-4 bg-red-900/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">💀</span>
+                  <h3 className="text-red-500 font-bold">Anti-Vision (Stakes)</h3>
+                </div>
+                <p className="text-gray-400 text-sm mb-3">
+                  Does this still make you feel something?
                 </p>
+                <textarea
+                  value={newAntiVision}
+                  onChange={(e) => setNewAntiVision(e.target.value)}
+                  className="w-full h-24 bg-gray-900 border border-red-800 rounded-lg p-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-600 resize-none"
+                />
+              </div>
 
-                <div className="bg-gray-900 border-2 border-green-600 rounded-lg p-6 mb-8">
-                  <h3 className="text-green-500 font-bold mb-4 text-xl">💎 LOOT ACQUIRED:</h3>
-                  <ul className="space-y-2">
-                    {loot.filter(l => l.trim()).map((item, i) => (
-                      <li key={i} className="text-white">• {item}</li>
-                    ))}
-                  </ul>
+              {/* Vision */}
+              <div className="border-2 border-green-600 rounded-lg p-4 bg-green-900/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">✨</span>
+                  <h3 className="text-green-500 font-bold">Vision (Win Condition)</h3>
                 </div>
-
-                <div className="text-3xl font-bold text-yellow-500">
-                  +1000 XP
-                </div>
-                <div className="text-gray-400 mt-2">Level up!</div>
-              </>
-            ) : (
-              <>
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="text-8xl mb-8"
-                >
-                  ⚠️
-                </motion.div>
-                <h2 className="text-4xl font-bold text-orange-500 mb-4">
-                  BOSS REMAINS
-                </h2>
-                <p className="text-xl text-gray-400 mb-4">
-                  "{currentBoss?.project_text}"
+                <p className="text-gray-400 text-sm mb-3">
+                  Does this still feel true, or have you outgrown it?
                 </p>
-                <p className="text-gray-400 mb-8">
-                  Progress: {currentBoss?.progress || 0}%
-                </p>
-
-                <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-8">
-                  <h3 className="text-gray-400 mb-2">What you learned:</h3>
-                  <p className="text-white">{learnings}</p>
-                </div>
-
-                <div className="text-2xl font-bold text-yellow-500">
-                  +250 XP
-                </div>
-                <div className="text-gray-400 mt-2">For trying</div>
-              </>
-            )}
+                <textarea
+                  value={newVision}
+                  onChange={(e) => setNewVision(e.target.value)}
+                  className="w-full h-24 bg-gray-900 border border-green-800 rounded-lg p-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-600 resize-none"
+                />
+              </div>
+            </div>
           </motion.div>
         );
 
@@ -296,18 +323,18 @@ export default function MonthlyBossFight({
           >
             <h2 className="text-2xl font-bold mb-6">New Monthly Project</h2>
 
-            <p className="text-gray-400 mb-4">
-              What's the next boss fight toward your 1-year goal?
-            </p>
-
-            <div className="mb-4 p-4 bg-gray-900 rounded-lg">
-              <p className="text-sm text-gray-400">Your 1-year goal:</p>
-              <p className="text-white">{sheet?.year_goal}</p>
+            {/* 1-Year Goal Display */}
+            <div className="border-2 border-yellow-600 rounded-lg p-4 bg-yellow-900/10 mb-6">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">🎯</span>
+                <h3 className="text-yellow-500 font-bold">1-Year Goal (Mission)</h3>
+              </div>
+              <p className="text-white">{sheet?.year_goal || 'No year goal set'}</p>
             </div>
 
-            <div>
+            <div className="flex-1">
               <label className="block text-lg mb-2">
-                What's the next boss fight toward your 1-year goal?
+                What's the next step toward your 1-year goal?
               </label>
               <textarea
                 value={newProject}
@@ -318,103 +345,14 @@ export default function MonthlyBossFight({
               />
             </div>
 
-            <div className="mt-6 p-4 bg-blue-900/20 border border-blue-600 rounded-lg">
-              <h3 className="text-blue-400 font-semibold mb-2">💡 Tip:</h3>
-              <p className="text-gray-300 text-sm">
-                What skills will this unlock? Make it specific and measurable.
+            {/* XP Preview */}
+            <div className="mt-6 p-4 bg-gray-900 border border-gray-700 rounded-lg text-center">
+              <p className="text-gray-400 mb-2">XP Reward for this month:</p>
+              <p className="text-3xl font-bold text-yellow-500">
+                +{wasCompleted ? '1000' : '250'} XP
               </p>
-            </div>
-          </motion.div>
-        );
-
-      case 'evolution':
-        return (
-          <motion.div
-            key="evolution"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="flex flex-col flex-1"
-          >
-            <h2 className="text-2xl font-bold mb-6">Vision Evolution</h2>
-
-            <div className="space-y-6 flex-1">
-              <div>
-                <label className="block text-lg mb-2">
-                  Does your vision still feel true, or have you outgrown it?
-                </label>
-                <div className="mb-2 p-3 bg-gray-900 rounded-lg">
-                  <p className="text-sm text-gray-400">Current vision:</p>
-                  <p className="text-white italic">"{sheet?.vision}"</p>
-                </div>
-                <textarea
-                  value={newVision}
-                  onChange={(e) => setNewVision(e.target.value)}
-                  placeholder="Update your vision..."
-                  className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2">
-                  Did you violate any constraints this month?
-                </label>
-                <div className="mb-2 p-3 bg-gray-900 rounded-lg">
-                  <p className="text-sm text-gray-400">Your constraints:</p>
-                  <p className="text-white">{sheet?.constraints}</p>
-                </div>
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => setConstraintsViolated(true)}
-                    className={`flex-1 py-3 rounded-lg transition ${
-                      constraintsViolated
-                        ? 'bg-red-600'
-                        : 'bg-gray-800 hover:bg-gray-700'
-                    }`}
-                  >
-                    Yes
-                  </button>
-                  <button
-                    onClick={() => setConstraintsViolated(false)}
-                    className={`flex-1 py-3 rounded-lg transition ${
-                      !constraintsViolated
-                        ? 'bg-green-600'
-                        : 'bg-gray-800 hover:bg-gray-700'
-                    }`}
-                  >
-                    No
-                  </button>
-                </div>
-              </div>
-
-              {constraintsViolated && (
-                <div>
-                  <label className="block text-lg mb-2 text-orange-500">
-                    Do these constraints still serve you, or are they hiding fears?
-                  </label>
-                  <div className="flex gap-4">
-                    <button
-                      onClick={() => setConstraintsValid(true)}
-                      className={`flex-1 py-3 rounded-lg transition ${
-                        constraintsValid
-                          ? 'bg-blue-600'
-                          : 'bg-gray-800 hover:bg-gray-700'
-                      }`}
-                    >
-                      Still valid
-                    </button>
-                    <button
-                      onClick={() => setConstraintsValid(false)}
-                      className={`flex-1 py-3 rounded-lg transition ${
-                        !constraintsValid
-                          ? 'bg-purple-600'
-                          : 'bg-gray-800 hover:bg-gray-700'
-                      }`}
-                    >
-                      Need to evolve
-                    </button>
-                  </div>
-                </div>
+              {wasCompleted && (
+                <p className="text-green-500 text-sm mt-1">Boss Defeated Bonus!</p>
               )}
             </div>
           </motion.div>
@@ -426,27 +364,25 @@ export default function MonthlyBossFight({
   };
 
   const getNextStep = () => {
-    const steps: typeof step[] = ['review', 'result', 'new-project', 'evolution'];
+    const steps: typeof step[] = ['completion', 'review', 'new-project'];
     const currentIndex = steps.indexOf(step);
     return steps[currentIndex + 1];
   };
 
   const getPrevStep = () => {
-    const steps: typeof step[] = ['review', 'result', 'new-project', 'evolution'];
+    const steps: typeof step[] = ['completion', 'review', 'new-project'];
     const currentIndex = steps.indexOf(step);
     return steps[currentIndex - 1];
   };
 
   const canProceed = () => {
     switch (step) {
+      case 'completion':
+        return wasCompleted !== null && reflection.trim();
       case 'review':
-        return learnings.trim() && (wasCompleted ? loot[0].trim() : true);
-      case 'result':
-        return true;
+        return newAntiVision.trim() && newVision.trim();
       case 'new-project':
         return newProject.trim();
-      case 'evolution':
-        return newVision.trim();
       default:
         return false;
     }
@@ -460,6 +396,20 @@ export default function MonthlyBossFight({
           <h1 className="text-2xl font-bold">Monthly Boss Fight</h1>
           <div className="text-yellow-500 font-mono">{formatTime(timeLeft)}</div>
         </div>
+
+        {/* Step Indicator */}
+        <div className="flex gap-2">
+          {['completion', 'review', 'new-project'].map((s, i) => (
+            <div
+              key={s}
+              className={`flex-1 h-1 rounded-full transition-colors ${
+                i <= ['completion', 'review', 'new-project'].indexOf(step)
+                  ? 'bg-purple-600'
+                  : 'bg-gray-700'
+              }`}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Content */}
@@ -471,7 +421,7 @@ export default function MonthlyBossFight({
       <div className="mt-8 flex justify-between">
         <button
           onClick={() => setStep(getPrevStep())}
-          disabled={step === 'review' || step === 'result'}
+          disabled={step === 'completion'}
           className="px-6 py-3 bg-gray-800 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition"
         >
           Previous
@@ -489,7 +439,7 @@ export default function MonthlyBossFight({
           disabled={!canProceed() || isSaving}
           className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 transition font-semibold"
         >
-          {isSaving ? 'Saving...' : step === 'evolution' ? 'Complete' : 'Next'}
+          {isSaving ? 'Saving...' : step === 'new-project' ? 'Complete' : 'Next'}
         </button>
       </div>
     </div>

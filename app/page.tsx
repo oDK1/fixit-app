@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
+import MainOnboarding from '@/components/onboarding/MainOnboarding';
 import GameHUD from '@/components/dashboard/GameHUD';
 import DailyDirectionCheck from '@/components/routines/DailyDirectionCheck';
 import WeeklyReflection from '@/components/routines/WeeklyReflection';
 import MonthlyBossFight from '@/components/routines/MonthlyBossFight';
-import CharacterSheet from '@/components/dashboard/CharacterSheet';
+import AdvancedReflection from '@/components/onboarding/AdvancedReflection';
 import MenuModal from '@/components/dashboard/MenuModal';
+import AnimatedLanding from '@/components/landing/AnimatedLanding';
 
-type View = 'loading' | 'welcome' | 'onboarding' | 'daily-check' | 'dashboard' | 'weekly' | 'monthly' | 'character-sheet';
+type View = 'loading' | 'animated-landing' | 'onboarding' | 'daily-check' | 'dashboard' | 'weekly' | 'monthly' | 'advanced-reflection';
 
 export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -18,10 +19,29 @@ export default function Home() {
   const [hasCompletedDailyCheck, setHasCompletedDailyCheck] = useState(false);
   const [currentView, setCurrentView] = useState<View>('loading');
   const [showMenu, setShowMenu] = useState(false);
+  const [hasSeenLanding, setHasSeenLanding] = useState(false);
 
   useEffect(() => {
     checkAuthAndProgress();
   }, []);
+
+  const handleReset = async () => {
+    try {
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+
+      // Clear all local storage
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Reload the page to start fresh
+      window.location.reload();
+    } catch (error) {
+      console.error('Error during reset:', error);
+      // Force reload anyway
+      window.location.reload();
+    }
+  };
 
   const checkAuthAndProgress = async () => {
     try {
@@ -34,7 +54,7 @@ export default function Home() {
       if (sessionError) {
         console.error('Session error:', sessionError);
         alert(`Supabase connection error: ${sessionError.message}\n\nPlease check your Supabase credentials in .env.local`);
-        setCurrentView('welcome');
+        setCurrentView('animated-landing');
         return;
       }
 
@@ -48,7 +68,7 @@ export default function Home() {
         if (error) {
           console.error('Failed to create anonymous session:', error);
           alert(`Failed to start demo session: ${error.message}\n\nPlease check:\n1. Your Supabase credentials in .env.local\n2. Anonymous auth is enabled in Supabase dashboard`);
-          setCurrentView('welcome');
+          setCurrentView('animated-landing');
           return;
         }
 
@@ -69,7 +89,8 @@ export default function Home() {
         .single();
 
       if (!sheetData) {
-        setCurrentView('onboarding');
+        // New user - show landing page first
+        setCurrentView('animated-landing');
         return;
       }
 
@@ -94,7 +115,7 @@ export default function Home() {
     } catch (error) {
       console.error('Error in checkAuthAndProgress:', error);
       alert(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck the browser console for details.`);
-      setCurrentView('welcome');
+      setCurrentView('animated-landing');
     }
   };
 
@@ -107,60 +128,18 @@ export default function Home() {
     );
   }
 
-  if (!userId || currentView === 'welcome') {
+  if (!userId || currentView === 'animated-landing') {
     return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        {/* Engraving Background */}
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black z-10" />
-          <img
-            src="/images/falling-engraving.jpeg"
-            alt=""
-            className="w-full h-full object-cover"
-          />
-        </div>
-
-        {/* Content */}
-        <div className="relative z-20 flex flex-col items-center">
-          <h1 className="text-6xl font-bold mb-4 text-center tracking-tight">
-            Are you falling into the{' '}
-            <span className="text-red-500">life you hate</span>
-          </h1>
-          <h2 className="text-5xl font-bold mb-8 text-center tracking-tight">
-            or climbing toward the{' '}
-            <span className="text-green-500">life you want</span>?
-          </h2>
-
-          <div className="max-w-2xl mb-12">
-            <p className="text-xl text-gray-300 mb-4 text-center leading-relaxed">
-              Most people quit their goals in 2 weeks because they build on a rotting foundation.
-            </p>
-            <p className="text-xl text-gray-300 text-center leading-relaxed">
-              This protocol helps you dig into your psyche, discover what you truly want, and turn your life into a game you can't stop playing.
-            </p>
-          </div>
-
-          <button
-            onClick={checkAuthAndProgress}
-            className="px-12 py-5 bg-white text-black rounded-lg font-bold text-xl hover:bg-gray-200 transition shadow-2xl border-4 border-white"
-          >
-            BEGIN THE DESCENT
-          </button>
-
-          <p className="mt-6 text-sm text-gray-500 uppercase tracking-widest">
-            One day to change everything
-          </p>
-        </div>
-
-        {/* Vignette effect */}
-        <div className="absolute inset-0 pointer-events-none bg-gradient-radial from-transparent via-black/30 to-black/80" />
-      </div>
+      <AnimatedLanding onEnter={() => {
+        setHasSeenLanding(true);
+        setCurrentView('onboarding');
+      }} />
     );
   }
 
   if (currentView === 'onboarding') {
     return (
-      <OnboardingFlow
+      <MainOnboarding
         userId={userId}
         onComplete={() => {
           setHasCompletedOnboarding(true);
@@ -200,10 +179,11 @@ export default function Home() {
     );
   }
 
-  if (currentView === 'character-sheet') {
+  if (currentView === 'advanced-reflection') {
     return (
-      <CharacterSheet
+      <AdvancedReflection
         userId={userId!}
+        isFullScreen={true}
         onClose={() => setCurrentView('dashboard')}
       />
     );
@@ -228,9 +208,10 @@ export default function Home() {
       {showMenu && (
         <MenuModal
           onClose={() => setShowMenu(false)}
-          onViewCharacterSheet={() => setCurrentView('character-sheet')}
+          onAdvancedReflection={() => setCurrentView('advanced-reflection')}
           onWeeklyReflection={() => setCurrentView('weekly')}
           onMonthlyBossFight={() => setCurrentView('monthly')}
+          onReset={handleReset}
         />
       )}
     </>

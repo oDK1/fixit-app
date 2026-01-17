@@ -69,6 +69,7 @@ CREATE TABLE public.weekly_reflections (
   anti_vision_check BOOLEAN DEFAULT FALSE,
   levers_adjusted BOOLEAN DEFAULT FALSE,
   project_progress INT DEFAULT 0,
+  blocking_progress TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, week_start)
 );
