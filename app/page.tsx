@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { logger, ErrorMessages } from '@/lib/logger';
 import MainOnboarding from '@/components/onboarding/MainOnboarding';
@@ -12,9 +13,22 @@ import AdvancedReflection from '@/components/onboarding/AdvancedReflection';
 import MenuModal from '@/components/dashboard/MenuModal';
 import AnimatedLanding from '@/components/landing/AnimatedLanding';
 
-type View = 'loading' | 'animated-landing' | 'onboarding' | 'daily-check' | 'dashboard' | 'weekly' | 'monthly' | 'advanced-reflection';
+type View = 'loading' | 'animated-landing' | 'animated-landing-autoplay' | 'onboarding' | 'daily-check' | 'dashboard' | 'weekly' | 'monthly' | 'advanced-reflection';
 
+// Wrapper component to handle Suspense for useSearchParams
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-2xl font-bold">Loading...</div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [hasCompletedDailyCheck, setHasCompletedDailyCheck] = useState(false);
@@ -22,6 +36,9 @@ export default function Home() {
   const [showMenu, setShowMenu] = useState(false);
   const [hasSeenLanding, setHasSeenLanding] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   useEffect(() => {
     checkAuthAndProgress();
@@ -74,6 +91,9 @@ export default function Home() {
 
       setUserId(currentUserId);
 
+      // Check if this is a welcome redirect from Google OAuth
+      const isWelcome = searchParams.get('welcome') === 'true';
+
       // Check if user has completed onboarding
       const { data: sheetData } = await supabase
         .from('character_sheet')
@@ -82,12 +102,24 @@ export default function Home() {
         .single();
 
       if (!sheetData) {
-        // User is authenticated but hasn't completed onboarding - go to onboarding
-        setCurrentView('onboarding');
+        // User is authenticated but hasn't completed onboarding
+        if (isWelcome) {
+          // Show the intro video for Google auth users, then go to onboarding
+          // Clean up the URL
+          router.replace('/', { scroll: false });
+          setCurrentView('animated-landing-autoplay');
+        } else {
+          setCurrentView('onboarding');
+        }
         return;
       }
 
       setHasCompletedOnboarding(true);
+
+      // Clean up welcome parameter for returning users
+      if (isWelcome) {
+        router.replace('/', { scroll: false });
+      }
 
       // Check if user has completed today's direction check
       const today = new Date().toISOString().split('T')[0];
@@ -144,7 +176,21 @@ export default function Home() {
     }
   };
 
-  if (!userId || currentView === 'animated-landing') {
+  if (currentView === 'animated-landing') {
+    return <AnimatedLanding onEnter={handleDemoEnter} errorMessage={errorMessage} />;
+  }
+
+  if (currentView === 'animated-landing-autoplay') {
+    // For Google auth users - show landing with video auto-playing
+    return (
+      <AnimatedLanding
+        onEnter={() => setCurrentView('onboarding')}
+        autoPlay={true}
+      />
+    );
+  }
+
+  if (!userId) {
     return <AnimatedLanding onEnter={handleDemoEnter} errorMessage={errorMessage} />;
   }
 

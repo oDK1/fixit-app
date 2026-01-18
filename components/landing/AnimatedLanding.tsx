@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingMan from './FloatingMan';
 import EnterButton from './EnterButton';
@@ -9,10 +9,22 @@ import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 interface AnimatedLandingProps {
   onEnter: () => void;
   errorMessage?: string | null;
+  autoPlay?: boolean;
 }
 
-export default function AnimatedLanding({ onEnter, errorMessage }: AnimatedLandingProps) {
+export default function AnimatedLanding({ onEnter, errorMessage, autoPlay = false }: AnimatedLandingProps) {
   const [isEntering, setIsEntering] = useState(false);
+
+  // Auto-play the video for Google auth users
+  useEffect(() => {
+    if (autoPlay && !isEntering) {
+      setIsEntering(true);
+      // Trigger onEnter after 5-second video completes
+      setTimeout(() => {
+        onEnter();
+      }, 5000);
+    }
+  }, [autoPlay, isEntering, onEnter]);
 
   const handleEnter = () => {
     setIsEntering(true);
