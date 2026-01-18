@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
-import { calculateLevel } from '@/lib/xp';
+import { useDailyLog } from '@/hooks';
 
 interface DailyDirectionCheckProps {
   userId: string;
@@ -19,6 +18,8 @@ export default function DailyDirectionCheck({
   const [comment, setComment] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const { submitDirectionCheck } = useDailyLog(userId);
+
   const handleSwipe = (dir: 'vision' | 'hate') => {
     setDirection(dir);
     setStep('comment');
@@ -29,60 +30,7 @@ export default function DailyDirectionCheck({
 
     setIsSaving(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
-
-      // Check if log exists
-      const { data: existingLog } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('date', today)
-        .single();
-
-      const xpGain = direction === 'vision' ? 50 : 0;
-
-      if (existingLog) {
-        await supabase
-          .from('daily_logs')
-          .update({
-            direction,
-            comment,
-            xp_gained: (existingLog.xp_gained || 0) + xpGain,
-          })
-          .eq('id', existingLog.id);
-      } else {
-        await supabase.from('daily_logs').insert({
-          user_id: userId,
-          date: today,
-          direction,
-          comment,
-          xp_gained: xpGain,
-          levers_completed: [],
-        });
-      }
-
-      // Update user streak if vision
-      if (direction === 'vision') {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('current_streak, total_xp')
-          .eq('id', userId)
-          .single();
-
-        const newStreak = (userData?.current_streak || 0) + 1;
-        const newXp = (userData?.total_xp || 0) + xpGain;
-        const newLevel = calculateLevel(newXp);
-
-        await supabase
-          .from('users')
-          .update({
-            current_streak: newStreak,
-            total_xp: newXp,
-            current_level: newLevel,
-          })
-          .eq('id', userId);
-      }
-
+      await submitDirectionCheck(direction, comment);
       onComplete();
     } catch (error) {
       console.error('Error saving direction check:', error);

@@ -2,9 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
-import { calculateLevel } from '@/lib/xp';
 import { DailyLog, CharacterSheet } from '@/types';
+import { useTimer } from '@/hooks';
+import {
+  getWeeklyLogs,
+  getCharacterSheet,
+  getActiveBossFight,
+  saveWeeklyReflection,
+  updateBossFightProgress,
+} from '@/lib/database';
 
 interface WeeklyReflectionProps {
   userId: string;
@@ -18,7 +24,8 @@ export default function WeeklyReflection({
   const [step, setStep] = useState(1);
   const [weekLogs, setWeekLogs] = useState<DailyLog[]>([]);
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes (reduced from 8)
+
+  const { timeLeft, formatTime } = useTimer(300);
 
   // Form state
   const [mostAlive, setMostAlive] = useState('');
@@ -28,97 +35,33 @@ export default function WeeklyReflection({
 
   useEffect(() => {
     loadWeekData();
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  }, [userId]);
 
   const loadWeekData = async () => {
-    // Get last 7 days of logs
-    const today = new Date();
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const [logsData, sheetData, bossData] = await Promise.all([
+      getWeeklyLogs(userId, 7),
+      getCharacterSheet(userId),
+      getActiveBossFight(userId),
+    ]);
 
-    const { data: logsData } = await supabase
-      .from('daily_logs')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('date', weekAgo.toISOString().split('T')[0])
-      .order('date', { ascending: false });
-
-    setWeekLogs(logsData || []);
-
-    // Get character sheet
-    const { data: sheetData } = await supabase
-      .from('character_sheet')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-
+    setWeekLogs(logsData);
     setSheet(sheetData);
-
-    // Get active boss fight progress
-    const { data: bossData } = await supabase
-      .from('boss_fights')
-      .select('progress')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
     if (bossData) {
       setProjectProgress(bossData.progress || 0);
     }
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleComplete = async () => {
     setIsSaving(true);
 
     try {
-      // Get week start date
-      const today = new Date();
-      const weekStart = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      // Save weekly reflection
-      await supabase.from('weekly_reflections').insert({
-        user_id: userId,
-        week_start: weekStart.toISOString().split('T')[0],
+      await saveWeeklyReflection(userId, {
         most_alive: mostAlive,
         project_progress: projectProgress,
         blocking_progress: blockingProgress,
       });
 
-      // Update the active boss fight progress
-      await supabase
-        .from('boss_fights')
-        .update({ progress: projectProgress })
-        .eq('user_id', userId)
-        .eq('status', 'active');
-
-      // Update user XP (+200 for weekly reflection)
-      const { data: userData } = await supabase
-        .from('users')
-        .select('total_xp')
-        .eq('id', userId)
-        .single();
-
-      const newXp = (userData?.total_xp || 0) + 200;
-      const newLevel = calculateLevel(newXp);
-
-      await supabase
-        .from('users')
-        .update({
-          total_xp: newXp,
-          current_level: newLevel,
-        })
-        .eq('id', userId);
+      await updateBossFightProgress(userId, projectProgress);
 
       onComplete();
     } catch (error) {
@@ -254,7 +197,7 @@ export default function WeeklyReflection({
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Weekly Reflection</h1>
-          <div className="text-yellow-500 font-mono">{formatTime(timeLeft)}</div>
+          <div className="text-yellow-500 font-mono">{formatTime()}</div>
         </div>
 
         {/* Progress */}

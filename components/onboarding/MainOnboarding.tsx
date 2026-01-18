@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 interface MainOnboardingProps {
   userId: string;
@@ -24,7 +24,33 @@ export default function MainOnboarding({
   const handleComplete = async () => {
     setIsSaving(true);
     try {
+      const supabase = createClient();
       console.log('Saving character sheet for user:', userId);
+
+      // Ensure user exists in public.users table (for OAuth users where trigger may not have fired)
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .single();
+
+      if (!existingUser) {
+        // Get user email from auth
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // Create user record
+        const { error: userError } = await supabase
+          .from('users')
+          .insert({
+            id: userId,
+            email: user?.email || null,
+          });
+
+        if (userError) {
+          console.error('Error creating user:', userError);
+          // Continue anyway - RLS might still work
+        }
+      }
 
       // Save character sheet
       const { data: sheetData, error: sheetError } = await supabase

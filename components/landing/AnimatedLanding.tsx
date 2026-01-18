@@ -4,12 +4,14 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingMan from './FloatingMan';
 import EnterButton from './EnterButton';
+import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 
 interface AnimatedLandingProps {
   onEnter: () => void;
+  errorMessage?: string | null;
 }
 
-export default function AnimatedLanding({ onEnter }: AnimatedLandingProps) {
+export default function AnimatedLanding({ onEnter, errorMessage }: AnimatedLandingProps) {
   const [isEntering, setIsEntering] = useState(false);
 
   const handleEnter = () => {
@@ -25,13 +27,41 @@ export default function AnimatedLanding({ onEnter }: AnimatedLandingProps) {
       {/* Fullscreen Video */}
       <FloatingMan isEntering={isEntering} />
 
-      {/* Enter Button - positioned in the black area at bottom */}
-      <div className="absolute bottom-4 left-0 right-0 flex justify-center z-50">
+      {/* Error Message Banner */}
+      {errorMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute top-4 left-4 right-4 z-50 bg-red-900/90 border border-red-500 rounded-lg p-4 text-center"
+        >
+          <p className="text-red-100">{errorMessage}</p>
+        </motion.div>
+      )}
+
+      {/* Auth Buttons - positioned in the black area at bottom */}
+      <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-3 z-50 px-6">
         <motion.div
           animate={{ opacity: isEntering ? 0 : 1 }}
           transition={{ duration: 0.5 }}
+          className="mb-4"
         >
           <EnterButton onClick={handleEnter} disabled={isEntering} />
+        </motion.div>
+
+        <motion.div
+          animate={{ opacity: isEntering ? 0 : 1 }}
+          transition={{ duration: 0.5 }}
+          className="w-full flex items-center justify-between"
+        >
+          <div className="flex-1" />
+          <div className="max-w-xs">
+            <GoogleSignInButton disabled={isEntering} />
+          </div>
+          <div className="flex-1 flex justify-end">
+            <p className="text-gray-500 text-sm whitespace-nowrap">
+              Sign in to save your progress
+            </p>
+          </div>
         </motion.div>
       </div>
 

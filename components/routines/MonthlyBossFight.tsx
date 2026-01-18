@@ -1,10 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
-import { calculateLevel } from '@/lib/xp';
-import { BossFight, CharacterSheet, WeeklyReflection } from '@/types';
+import { useTimer, useBossFight } from '@/hooks';
 
 interface MonthlyBossFightProps {
   userId: string;
@@ -16,138 +14,33 @@ export default function MonthlyBossFight({
   onComplete,
 }: MonthlyBossFightProps) {
   const [step, setStep] = useState<'completion' | 'review' | 'new-project'>('completion');
-  const [currentBoss, setCurrentBoss] = useState<BossFight | null>(null);
-  const [sheet, setSheet] = useState<CharacterSheet | null>(null);
-  const [weeklyReflections, setWeeklyReflections] = useState<WeeklyReflection[]>([]);
-  const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
+  const { bossFight, sheet, weeklyReflections, loading, complete } = useBossFight(userId);
+  const { formatTime } = useTimer(600);
 
   // Form state
   const [wasCompleted, setWasCompleted] = useState<boolean | null>(null);
   const [reflection, setReflection] = useState('');
   const [newProject, setNewProject] = useState('');
-  const [newVision, setNewVision] = useState('');
-  const [newAntiVision, setNewAntiVision] = useState('');
+  const [newVision, setNewVision] = useState(sheet?.vision || '');
+  const [newAntiVision, setNewAntiVision] = useState(sheet?.anti_vision || '');
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    loadData();
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const loadData = async () => {
-    // Get active boss fight
-    const { data: bossData } = await supabase
-      .from('boss_fights')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    setCurrentBoss(bossData);
-
-    // Get character sheet
-    const { data: sheetData } = await supabase
-      .from('character_sheet')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-
-    setSheet(sheetData);
-    setNewVision(sheetData?.vision || '');
-    setNewAntiVision(sheetData?.anti_vision || '');
-
-    // Get weekly reflections for the current boss fight period only
-    // Filter by BOTH week_start date AND created_at timestamp to ensure
-    // we only show reflections that were created during this boss fight period
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-
-    // Use the boss fight's created_at as the lower bound for reflections
-    // This ensures we only show reflections made DURING this boss fight period
-    const bossCreatedAt = bossData?.created_at
-      ? new Date(bossData.created_at).toISOString()
-      : new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: reflectionsData } = await supabase
-      .from('weekly_reflections')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('created_at', bossCreatedAt)
-      .lte('week_start', todayStr)
-      .order('week_start', { ascending: true });
-
-    setWeeklyReflections(reflectionsData || []);
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // Update form when sheet loads
+  if (sheet && !newVision && sheet.vision) {
+    setNewVision(sheet.vision);
+  }
+  if (sheet && !newAntiVision && sheet.anti_vision) {
+    setNewAntiVision(sheet.anti_vision);
+  }
 
   const handleComplete = async () => {
     setIsSaving(true);
 
     try {
-      const completed = wasCompleted === true;
-
-      // Update current boss fight
-      if (currentBoss) {
-        await supabase
-          .from('boss_fights')
-          .update({
-            status: completed ? 'defeated' : 'failed',
-            progress: completed ? 100 : currentBoss.progress,
-            learnings: reflection,
-            xp_gained: completed ? 1000 : 250,
-            completed_at: new Date().toISOString(),
-          })
-          .eq('id', currentBoss.id);
-      }
-
-      // Create new boss fight
-      await supabase.from('boss_fights').insert({
-        user_id: userId,
-        month_start: new Date().toISOString().split('T')[0],
-        project_text: newProject,
-        status: 'active',
-        progress: 0,
+      await complete(wasCompleted === true, reflection, newProject, {
+        vision: newVision,
+        anti_vision: newAntiVision,
       });
-
-      // Update character sheet with vision, anti-vision, and new project
-      await supabase
-        .from('character_sheet')
-        .update({
-          vision: newVision,
-          anti_vision: newAntiVision,
-          month_project: newProject,
-        })
-        .eq('user_id', userId);
-
-      // Update user XP
-      const { data: userData } = await supabase
-        .from('users')
-        .select('total_xp')
-        .eq('id', userId)
-        .single();
-
-      const xpGain = completed ? 1000 : 250;
-      const newXp = (userData?.total_xp || 0) + xpGain;
-      const newLevel = calculateLevel(newXp);
-
-      await supabase
-        .from('users')
-        .update({
-          total_xp: newXp,
-          current_level: newLevel,
-        })
-        .eq('id', userId);
-
       onComplete();
     } catch (error) {
       console.error('Error completing boss fight:', error);
@@ -170,8 +63,8 @@ export default function MonthlyBossFight({
             <h2 className="text-2xl font-bold mb-6">Project Completion</h2>
 
             <div className="border-2 border-orange-600 rounded-lg p-6 bg-orange-900/10 mb-6">
-              <h3 className="text-orange-500 font-bold mb-2">⚔️ This Month's Boss:</h3>
-              <p className="text-xl text-white">{currentBoss?.project_text || 'No active project'}</p>
+              <h3 className="text-orange-500 font-bold mb-2">This Month's Boss:</h3>
+              <p className="text-xl text-white">{bossFight?.project_text || 'No active project'}</p>
             </div>
 
             <div className="space-y-6 flex-1">
@@ -188,7 +81,7 @@ export default function MonthlyBossFight({
                         : 'bg-gray-800 border-2 border-gray-700 hover:border-green-600'
                     }`}
                   >
-                    ✓ Yes, Completed
+                    Yes, Completed
                   </button>
                   <button
                     onClick={() => setWasCompleted(false)}
@@ -198,7 +91,7 @@ export default function MonthlyBossFight({
                         : 'bg-gray-800 border-2 border-gray-700 hover:border-red-600'
                     }`}
                   >
-                    ✗ No, Not Yet
+                    No, Not Yet
                   </button>
                 </div>
               </div>
@@ -221,40 +114,29 @@ export default function MonthlyBossFight({
                       {weeklyReflections.length === 0 ? (
                         <p className="text-gray-500 text-sm italic">No weekly reflections this month</p>
                       ) : (
-                        <>
-                          {weeklyReflections.map((reflection, index) => {
-                            const weekNum = index + 1;
-                            const content = wasCompleted
-                              ? reflection.most_alive
-                              : reflection.blocking_progress;
-                            return (
-                              <div key={reflection.id} className="text-sm">
-                                <span className="text-purple-400 font-medium">Week {weekNum}:</span>
-                                <span className="text-gray-300 ml-2">
-                                  {content || <span className="text-gray-500 italic">Not recorded</span>}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </>
+                        weeklyReflections.map((ref, index) => {
+                          const content = wasCompleted ? ref.most_alive : ref.blocking_progress;
+                          return (
+                            <div key={ref.id} className="text-sm">
+                              <span className="text-purple-400 font-medium">Week {index + 1}:</span>
+                              <span className="text-gray-300 ml-2">
+                                {content || <span className="text-gray-500 italic">Not recorded</span>}
+                              </span>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-lg mb-2">
-                      {wasCompleted
-                        ? 'What did you learn?'
-                        : 'Why were you not able to complete?'}
+                      {wasCompleted ? 'What did you learn?' : 'Why were you not able to complete?'}
                     </label>
                     <textarea
                       value={reflection}
                       onChange={(e) => setReflection(e.target.value)}
-                      placeholder={
-                        wasCompleted
-                          ? 'I learned that...'
-                          : 'I was not able to complete because...'
-                      }
+                      placeholder={wasCompleted ? 'I learned that...' : 'I was not able to complete because...'}
                       className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-600 resize-none"
                       autoFocus
                     />
@@ -363,17 +245,7 @@ export default function MonthlyBossFight({
     }
   };
 
-  const getNextStep = () => {
-    const steps: typeof step[] = ['completion', 'review', 'new-project'];
-    const currentIndex = steps.indexOf(step);
-    return steps[currentIndex + 1];
-  };
-
-  const getPrevStep = () => {
-    const steps: typeof step[] = ['completion', 'review', 'new-project'];
-    const currentIndex = steps.indexOf(step);
-    return steps[currentIndex - 1];
-  };
+  const steps: typeof step[] = ['completion', 'review', 'new-project'];
 
   const canProceed = () => {
     switch (step) {
@@ -388,24 +260,30 @@ export default function MonthlyBossFight({
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-xl">Loading...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white p-6 flex flex-col">
       {/* Header */}
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Monthly Boss Fight</h1>
-          <div className="text-yellow-500 font-mono">{formatTime(timeLeft)}</div>
+          <div className="text-yellow-500 font-mono">{formatTime()}</div>
         </div>
 
         {/* Step Indicator */}
         <div className="flex gap-2">
-          {['completion', 'review', 'new-project'].map((s, i) => (
+          {steps.map((s, i) => (
             <div
               key={s}
               className={`flex-1 h-1 rounded-full transition-colors ${
-                i <= ['completion', 'review', 'new-project'].indexOf(step)
-                  ? 'bg-purple-600'
-                  : 'bg-gray-700'
+                i <= steps.indexOf(step) ? 'bg-purple-600' : 'bg-gray-700'
               }`}
             />
           ))}
@@ -420,7 +298,10 @@ export default function MonthlyBossFight({
       {/* Navigation */}
       <div className="mt-8 flex justify-between">
         <button
-          onClick={() => setStep(getPrevStep())}
+          onClick={() => {
+            const currentIndex = steps.indexOf(step);
+            if (currentIndex > 0) setStep(steps[currentIndex - 1]);
+          }}
           disabled={step === 'completion'}
           className="px-6 py-3 bg-gray-800 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition"
         >
@@ -429,9 +310,10 @@ export default function MonthlyBossFight({
 
         <button
           onClick={() => {
-            const next = getNextStep();
-            if (next) {
-              setStep(next);
+            const currentIndex = steps.indexOf(step);
+            const nextStep = steps[currentIndex + 1];
+            if (nextStep) {
+              setStep(nextStep);
             } else {
               handleComplete();
             }

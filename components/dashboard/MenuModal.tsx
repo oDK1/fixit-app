@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import SignOutButton from '@/components/auth/SignOutButton';
 
 interface MenuModalProps {
   onClose: () => void;
@@ -81,6 +82,8 @@ export default function MenuModal({
               </div>
             </div>
           </button>
+
+          <SignOutButton />
 
           <button
             onClick={() => {

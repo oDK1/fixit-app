@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
+import { logger, ErrorMessages } from '@/lib/logger';
 import MainOnboarding from '@/components/onboarding/MainOnboarding';
 import GameHUD from '@/components/dashboard/GameHUD';
 import DailyDirectionCheck from '@/components/routines/DailyDirectionCheck';
@@ -20,6 +21,7 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<View>('loading');
   const [showMenu, setShowMenu] = useState(false);
   const [hasSeenLanding, setHasSeenLanding] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     checkAuthAndProgress();
@@ -28,6 +30,7 @@ export default function Home() {
   const handleReset = async () => {
     try {
       // Sign out from Supabase
+      const supabase = createClient();
       await supabase.auth.signOut();
 
       // Clear all local storage
@@ -37,7 +40,7 @@ export default function Home() {
       // Reload the page to start fresh
       window.location.reload();
     } catch (error) {
-      console.error('Error during reset:', error);
+      logger.error('Error during reset:', error);
       // Force reload anyway
       window.location.reload();
     }
@@ -45,15 +48,15 @@ export default function Home() {
 
   const checkAuthAndProgress = async () => {
     try {
-      console.log('Starting checkAuthAndProgress...');
-      console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+      const supabase = createClient();
+      logger.log('Starting checkAuthAndProgress...');
 
       // Check for existing session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError) {
-        console.error('Session error:', sessionError);
-        alert(`Supabase connection error: ${sessionError.message}\n\nPlease check your Supabase credentials in .env.local`);
+        logger.error('Session error:', sessionError);
+        setErrorMessage(ErrorMessages.AUTH_SESSION);
         setCurrentView('animated-landing');
         return;
       }
@@ -61,22 +64,12 @@ export default function Home() {
       let currentUserId: string;
 
       if (!session) {
-        // Create anonymous session for demo
-        console.log('Creating anonymous session...');
-        const { data, error } = await supabase.auth.signInAnonymously();
-
-        if (error) {
-          console.error('Failed to create anonymous session:', error);
-          alert(`Failed to start demo session: ${error.message}\n\nPlease check:\n1. Your Supabase credentials in .env.local\n2. Anonymous auth is enabled in Supabase dashboard`);
-          setCurrentView('animated-landing');
-          return;
-        }
-
-        currentUserId = data.user!.id;
-        console.log('Anonymous session created:', currentUserId);
+        // No session - show landing page for Google sign-in or demo
+        setCurrentView('animated-landing');
+        return;
       } else {
         currentUserId = session.user.id;
-        console.log('Existing session found:', currentUserId);
+        logger.log('Session found');
       }
 
       setUserId(currentUserId);
@@ -89,8 +82,8 @@ export default function Home() {
         .single();
 
       if (!sheetData) {
-        // New user - show landing page first
-        setCurrentView('animated-landing');
+        // User is authenticated but hasn't completed onboarding - go to onboarding
+        setCurrentView('onboarding');
         return;
       }
 
@@ -113,8 +106,8 @@ export default function Home() {
       setHasCompletedDailyCheck(true);
       setCurrentView('dashboard');
     } catch (error) {
-      console.error('Error in checkAuthAndProgress:', error);
-      alert(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck the browser console for details.`);
+      logger.error('Error in checkAuthAndProgress:', error);
+      setErrorMessage(ErrorMessages.GENERIC);
       setCurrentView('animated-landing');
     }
   };
@@ -128,13 +121,31 @@ export default function Home() {
     );
   }
 
+  const handleDemoEnter = async () => {
+    try {
+      const supabase = createClient();
+      setHasSeenLanding(true);
+      setErrorMessage(null);
+
+      // Create anonymous session for demo mode
+      const { data, error } = await supabase.auth.signInAnonymously();
+
+      if (error) {
+        logger.error('Failed to create anonymous session:', error);
+        setErrorMessage(ErrorMessages.AUTH_SIGNIN);
+        return;
+      }
+
+      setUserId(data.user!.id);
+      setCurrentView('onboarding');
+    } catch (error) {
+      logger.error('Error starting demo:', error);
+      setErrorMessage(ErrorMessages.AUTH_SIGNIN);
+    }
+  };
+
   if (!userId || currentView === 'animated-landing') {
-    return (
-      <AnimatedLanding onEnter={() => {
-        setHasSeenLanding(true);
-        setCurrentView('onboarding');
-      }} />
-    );
+    return <AnimatedLanding onEnter={handleDemoEnter} errorMessage={errorMessage} />;
   }
 
   if (currentView === 'onboarding') {

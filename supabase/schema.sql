@@ -2,9 +2,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table (extends Supabase auth.users)
+-- Email is nullable to support anonymous authentication
 CREATE TABLE public.users (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
-  email TEXT NOT NULL,
+  email TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   current_level INT DEFAULT 1,
   total_xp INT DEFAULT 0,
@@ -171,11 +172,12 @@ CREATE POLICY "Users can insert own achievements" ON public.achievements
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Function to automatically create user record on signup
+-- Handles both OAuth users (with email) and anonymous users (without email)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO public.users (id, email)
-  VALUES (NEW.id, NEW.email);
+  VALUES (NEW.id, COALESCE(NEW.email, NULL));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

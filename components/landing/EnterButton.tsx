@@ -12,7 +12,7 @@ export default function EnterButton({ onClick, disabled }: EnterButtonProps) {
     <motion.button
       onClick={onClick}
       disabled={disabled}
-      className="relative px-16 py-6 text-2xl font-bold tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+      className="relative px-8 py-5 text-base font-bold tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
       whileHover={!disabled ? { scale: 1.05 } : {}}
       whileTap={!disabled ? { scale: 0.95 } : {}}
       initial={{ opacity: 0, y: 20 }}
@@ -25,7 +25,7 @@ export default function EnterButton({ onClick, disabled }: EnterButtonProps) {
       <div className="absolute inset-[6px] bg-gradient-to-b from-gray-800 via-gray-900 to-black rounded-lg border-2 border-gray-600" />
 
       {/* Text with engraved effect */}
-      <span className="relative block text-transparent bg-clip-text bg-gradient-to-b from-gray-300 via-gray-100 to-gray-400" style={{
+      <span className="relative block whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-b from-gray-300 via-gray-100 to-gray-400" style={{
         textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 -1px 1px rgba(255,255,255,0.2)',
         filter: 'drop-shadow(0 1px 1px rgba(255,255,255,0.1))',
       }}>

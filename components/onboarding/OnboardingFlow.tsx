@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ONBOARDING_QUESTIONS } from '@/lib/questions';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
+import { sanitizeInput } from '@/lib/sanitize';
 import { OnboardingResponse } from '@/types';
 import QuickCharacterSheet from './QuickCharacterSheet';
 
@@ -39,15 +40,18 @@ export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowPro
   const saveAnswer = async (answer: string) => {
     setIsSaving(true);
     try {
+      const supabase = createClient();
+      // Sanitize user input before storing
+      const sanitizedAnswer = sanitizeInput(answer, { maxLength: 5000 });
       await supabase.from('onboarding_responses').upsert({
         user_id: userId,
         question_number: question.number,
         question_text: question.text,
-        answer,
+        answer: sanitizedAnswer,
       });
-      setAnswers({ ...answers, [question.number]: answer });
+      setAnswers({ ...answers, [question.number]: sanitizedAnswer });
     } catch (error) {
-      console.error('Error saving answer:', error);
+      // Error handling without exposing details
     } finally {
       setIsSaving(false);
     }
@@ -73,12 +77,13 @@ export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowPro
   };
 
   const finalizeOnboarding = async () => {
-    // Extract key answers for character sheet
-    const antiVision = answers[17] || '';
-    const vision = answers[18] || '';
-    const yearGoal = answers[19] || '';
-    const monthProject = answers[20] || '';
-    const constraints = answers[22] || '';
+    const supabase = createClient();
+    // Extract and sanitize key answers for character sheet
+    const antiVision = sanitizeInput(answers[17] || '', { maxLength: 2000 });
+    const vision = sanitizeInput(answers[18] || '', { maxLength: 2000 });
+    const yearGoal = sanitizeInput(answers[19] || '', { maxLength: 2000 });
+    const monthProject = sanitizeInput(answers[20] || '', { maxLength: 2000 });
+    const constraints = sanitizeInput(answers[22] || '', { maxLength: 2000 });
 
     // Save character sheet
     await supabase.from('character_sheet').insert({
@@ -95,9 +100,10 @@ export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowPro
     const levers = leversText
       .split('\n')
       .filter((l) => l.trim())
+      .slice(0, 10) // Limit to 10 levers max
       .map((lever, index) => ({
         user_id: userId,
-        lever_text: lever.replace(/^\d+\.\s*/, '').trim(),
+        lever_text: sanitizeInput(lever.replace(/^\d+\.\s*/, '').trim(), { maxLength: 500 }),
         xp_value: 50,
         order: index,
         active: true,

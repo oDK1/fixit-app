@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ONBOARDING_QUESTIONS } from '@/lib/questions';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 interface AdvancedReflectionProps {
   userId: string;
@@ -24,6 +24,7 @@ export default function AdvancedReflection({ userId, isFullScreen = false, onClo
   }, [isOpen, isFullScreen, userId]);
 
   const loadAnswers = async () => {
+    const supabase = createClient();
     const { data } = await supabase
       .from('onboarding_responses')
       .select('question_number, answer')
@@ -43,6 +44,7 @@ export default function AdvancedReflection({ userId, isFullScreen = false, onClo
 
     setSavingQuestion(questionNumber);
     try {
+      const supabase = createClient();
       const question = ONBOARDING_QUESTIONS.find(q => q.number === questionNumber);
       await supabase.from('onboarding_responses').upsert({
         user_id: userId,

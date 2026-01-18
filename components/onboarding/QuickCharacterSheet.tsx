@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 interface QuickCharacterSheetProps {
   userId: string;
@@ -26,7 +26,23 @@ export default function QuickCharacterSheet({
   const handleComplete = async () => {
     setIsSaving(true);
     try {
+      const supabase = createClient();
       console.log('Saving character sheet for user:', userId);
+
+      // Ensure user exists in public.users table
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .single();
+
+      if (!existingUser) {
+        const { data: { user } } = await supabase.auth.getUser();
+        await supabase.from('users').insert({
+          id: userId,
+          email: user?.email || null,
+        });
+      }
 
       // Save character sheet
       const { data: sheetData, error: sheetError } = await supabase
