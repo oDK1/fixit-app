@@ -37,9 +37,7 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // Add welcome=true to trigger the intro video for new Google auth users
-      const redirectUrl = next === '/' ? '/?welcome=true' : next;
-      return NextResponse.redirect(`${origin}${redirectUrl}`);
+      return NextResponse.redirect(`${origin}${next}`);
     }
   }
 

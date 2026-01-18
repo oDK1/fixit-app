@@ -1,17 +1,31 @@
 'use client';
 
+import { useRef } from 'react';
 import { signInWithGoogle } from '@/lib/auth/actions';
 
 interface GoogleSignInButtonProps {
   disabled?: boolean;
+  onBeforeSignIn?: () => Promise<void>;
 }
 
-export default function GoogleSignInButton({ disabled }: GoogleSignInButtonProps) {
+export default function GoogleSignInButton({ disabled, onBeforeSignIn }: GoogleSignInButtonProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const handleClick = async (e: React.MouseEvent) => {
+    if (onBeforeSignIn) {
+      e.preventDefault();
+      await onBeforeSignIn();
+      // After callback completes, submit the form
+      formRef.current?.requestSubmit();
+    }
+  };
+
   return (
-    <form action={signInWithGoogle}>
+    <form ref={formRef} action={signInWithGoogle}>
       <button
         type="submit"
         disabled={disabled}
+        onClick={handleClick}
         className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-white text-gray-800 rounded-lg font-medium text-sm hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {/* Google Logo */}

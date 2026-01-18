@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingMan from './FloatingMan';
 import EnterButton from './EnterButton';
@@ -9,22 +9,10 @@ import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 interface AnimatedLandingProps {
   onEnter: () => void;
   errorMessage?: string | null;
-  autoPlay?: boolean;
 }
 
-export default function AnimatedLanding({ onEnter, errorMessage, autoPlay = false }: AnimatedLandingProps) {
+export default function AnimatedLanding({ onEnter, errorMessage }: AnimatedLandingProps) {
   const [isEntering, setIsEntering] = useState(false);
-
-  // Auto-play the video for Google auth users
-  useEffect(() => {
-    if (autoPlay && !isEntering) {
-      setIsEntering(true);
-      // Trigger onEnter after 5-second video completes
-      setTimeout(() => {
-        onEnter();
-      }, 5000);
-    }
-  }, [autoPlay, isEntering, onEnter]);
 
   const handleEnter = () => {
     setIsEntering(true);
@@ -32,6 +20,17 @@ export default function AnimatedLanding({ onEnter, errorMessage, autoPlay = fals
     setTimeout(() => {
       onEnter();
     }, 5000);
+  };
+
+  // Play video first, then proceed to Google OAuth
+  const handleGoogleSignIn = (): Promise<void> => {
+    return new Promise((resolve) => {
+      setIsEntering(true);
+      // Wait for 5-second video to complete, then resolve to trigger OAuth
+      setTimeout(() => {
+        resolve();
+      }, 5000);
+    });
   };
 
   return (
@@ -67,7 +66,7 @@ export default function AnimatedLanding({ onEnter, errorMessage, autoPlay = fals
         >
           <div className="flex-1" />
           <div className="max-w-xs">
-            <GoogleSignInButton disabled={isEntering} />
+            <GoogleSignInButton disabled={isEntering} onBeforeSignIn={handleGoogleSignIn} />
           </div>
           <div className="flex-1 flex justify-end">
             <p className="text-gray-500 text-sm whitespace-nowrap">
